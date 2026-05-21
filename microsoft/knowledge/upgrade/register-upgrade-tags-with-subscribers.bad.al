@@ -1,4 +1,4 @@
-codeunit 50805 "Upgrade Sample TagRegister Bad"
+codeunit 50213 "Upgrade Tag Registration"
 {
     Subtype = Upgrade;
 
@@ -6,17 +6,15 @@ codeunit 50805 "Upgrade Sample TagRegister Bad"
     var
         UpgradeTag: Codeunit "Upgrade Tag";
     begin
-        if UpgradeTag.HasUpgradeTag(FeatureXUpgradeTag()) then
+        if UpgradeTag.HasUpgradeTag(MyUpgradeTag()) then
             exit;
-
-        UpgradeTag.SetUpgradeTag(FeatureXUpgradeTag());
+        UpgradeTag.SetUpgradeTag(MyUpgradeTag());
     end;
 
-    // Missing OnGetPerCompanyUpgradeTags subscriber.
-    // The tag is set but the platform's upgrade-tag machinery does not know about it.
-
-    local procedure FeatureXUpgradeTag(): Code[250]
+    local procedure MyUpgradeTag(): Code[250]
     begin
-        exit('MS-000004-FeatureX-20260501');
+        exit('MS-123456-MyFeature-20240101');
     end;
+
+    // No OnGetPerCompanyUpgradeTags subscriber — the tag is unknown to the platform.
 }

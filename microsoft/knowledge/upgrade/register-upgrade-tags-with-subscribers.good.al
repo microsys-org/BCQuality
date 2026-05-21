@@ -1,4 +1,4 @@
-codeunit 50804 "Upgrade Sample TagRegister Good"
+codeunit 50212 "Upgrade Tag Registration"
 {
     Subtype = Upgrade;
 
@@ -6,20 +6,20 @@ codeunit 50804 "Upgrade Sample TagRegister Good"
     var
         UpgradeTag: Codeunit "Upgrade Tag";
     begin
-        if UpgradeTag.HasUpgradeTag(FeatureXUpgradeTag()) then
+        if UpgradeTag.HasUpgradeTag(MyUpgradeTag()) then
             exit;
+        // Upgrade work ...
+        UpgradeTag.SetUpgradeTag(MyUpgradeTag());
+    end;
 
-        UpgradeTag.SetUpgradeTag(FeatureXUpgradeTag());
+    local procedure MyUpgradeTag(): Code[250]
+    begin
+        exit('MS-123456-MyFeature-20240101');
     end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Upgrade Tag", 'OnGetPerCompanyUpgradeTags', '', false, false)]
     local procedure RegisterPerCompanyTags(var PerCompanyUpgradeTags: List of [Code[250]])
     begin
-        PerCompanyUpgradeTags.Add(FeatureXUpgradeTag());
-    end;
-
-    local procedure FeatureXUpgradeTag(): Code[250]
-    begin
-        exit('MS-000003-FeatureX-20260501');
+        PerCompanyUpgradeTags.Add(MyUpgradeTag());
     end;
 }

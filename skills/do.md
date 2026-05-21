@@ -133,6 +133,18 @@ An empty `findings` array with `outcome: completed` means the skill ran and foun
 
 When a super-skill rolls up a non-citation finding from a sub-skill (an `id` that is a slug, not a path), the super-skill MUST prefix the `id` with `<from-sub-skill>:` to avoid collisions across sub-skills (for example, a slug `missing-test` from `al-security-review` becomes `al-security-review:missing-test`). Citation-based findings are already globally unique through their repo-relative path and MUST NOT be rewritten.
 
+**Agent findings.** A super-skill MAY emit findings that the agent identified through its own reasoning rather than from a BCQuality knowledge file. BCQuality is an **additive** knowledge layer: it augments the agent's pre-existing review judgement, it does not replace it. An agent finding is encoded by:
+
+- `from-sub-skill: "agent"` — the canonical marker. Use this exact value; do not invent equivalents.
+- `references: []` — required. An agent finding has no knowledge-file citation by definition; if a citation existed, the finding would be a knowledge-backed finding instead.
+- `id` — a skill-defined slug, prefixed with `agent:` (mirroring the `<from-sub-skill>:` rule). For example, `agent:obsolete-find-signature`.
+- `confidence` — capped at `medium`. Without a knowledge-file citation there is no authoritative basis for `high` confidence.
+- `message` — non-empty and self-contained. It MUST describe the issue and a concrete recommendation, since a consumer rendering the finding has no knowledge-file footer to fall back on.
+
+Agent findings are emitted **only by super-skills** (the `al-code-review` super-skill is the canonical example). Leaf sub-skills MUST NOT emit agent findings: a leaf's job is to evaluate one knowledge subset, and a finding it cannot cite from that subset is out of scope for it. Before emitting an agent finding, a super-skill MUST validate the candidate against the BCQuality knowledge it has already loaded for the task — if a knowledge file matches, the candidate is upgraded to a knowledge-backed finding (and merged or deduplicated against any sub-skill output that already covers the same concern); if a knowledge file explicitly contradicts the candidate, it is suppressed.
+
+Consumers that render output MAY treat agent findings differently from knowledge-backed findings (for example, by labelling them and routing them to a separate review domain). The `from-sub-skill: "agent"` marker is the contract they rely on.
+
 **`findings[].severity`** — see the taxonomy below.
 
 **`findings[].message`** — human-readable explanation of the finding. Single short paragraph. No markdown formatting assumptions.
@@ -150,11 +162,11 @@ Findings without a `location` are permitted (for example, repository-wide observ
 - `path` (required) — repo-relative path to the knowledge file, forward slashes.
 - `sha` (optional) — commit SHA the skill read when producing the finding. Consumers SHOULD include `sha` when the skill was invoked with a specific repo state.
 
-The first reference is the **primary** reference: the knowledge file the finding most directly cites. Additional references provide supporting context and are not ranked. `references` MAY be empty for findings the skill generates without a knowledge-file citation.
+The first reference is the **primary** reference: the knowledge file the finding most directly cites. Additional references provide supporting context and are not ranked. `references` MAY be empty only for **agent findings** (see the `findings[].id` section above for the full encoding); any other finding MUST have at least one reference.
 
 **`findings[].confidence`** — the skill's confidence that the finding is a true positive, given the evidence it evaluated. Not applicability confidence, not severity confidence. Values: `high`, `medium`, `low`.
 
-**`findings[].from-sub-skill`** — optional. Set only by super-skills. The `skill.id` of the sub-skill that produced the finding. Absent on findings produced directly by the emitting skill.
+**`findings[].from-sub-skill`** — optional. Set only by super-skills. The `skill.id` of the sub-skill that produced the finding, or the literal string `"agent"` for an agent finding the super-skill produced from its own reasoning. Absent on findings produced directly by a leaf skill.
 
 **`suppressed`** — MUST list every knowledge file that was discarded due to layer precedence or consumer configuration, whenever that file would otherwise have contributed to the worklist. Each entry contains:
 

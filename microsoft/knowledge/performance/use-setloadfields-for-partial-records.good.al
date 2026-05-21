@@ -1,15 +1,23 @@
-codeunit 50110 "Perf Sample SetLoadFields Good"
+codeunit 50218 "Perf Sample LoadFields Good"
 {
-    procedure ExportItemNumbers(var Item: Record Item)
+    procedure ListUSCustomerNames()
+    var
+        Customer: Record Customer;
     begin
-        Item.SetLoadFields("No.", Description);
-        if Item.FindSet() then
+        Customer.SetLoadFields(Name);
+        Customer.SetRange("Country/Region Code", 'US');
+        if Customer.FindSet() then
             repeat
-                Export(Item."No.", Item.Description);
-            until Item.Next() = 0;
+                Message(Customer.Name);
+            until Customer.Next() = 0;
     end;
 
-    local procedure Export(ItemNo: Code[20]; Description: Text[100])
+    procedure LookupSkuPolicy(LocationCode: Code[10]) Policy: Enum "SKU Creation Method"
+    var
+        Location: Record Location;
     begin
+        Location.SetLoadFields("SKU Creation Policy");
+        if Location.Get(LocationCode) then
+            Policy := Location."SKU Creation Policy";
     end;
 }

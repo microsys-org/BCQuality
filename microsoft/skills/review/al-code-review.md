@@ -23,7 +23,7 @@ sub-skills:
 
 Reviews AL source changes by composing the leaf AL review skills. This is the canonical reference implementation of a **super-skill** — skill authors writing composed reviews should copy its structure.
 
-`al-code-review` does not evaluate knowledge files directly. It invokes each of its sub-skills against the same task input, collects their findings-reports, and returns a rolled-up findings-report.
+`al-code-review` does not evaluate knowledge files directly. It invokes each of its sub-skills against the same task input, collects their findings-reports, and then performs its own **self-review pass** over the diff using the agent's built-in BC and AL knowledge. BCQuality knowledge is an additive layer: anything the sub-skills found is cited from BCQuality, and anything the agent finds on its own is validated against BCQuality (cited if matched, suppressed if contradicted, surfaced as an **agent finding** otherwise). The result is a single rolled-up findings-report that mixes knowledge-backed and agent findings, each clearly tagged via `from-sub-skill`.
 
 An orchestrator invokes this skill with either a `pr-diff` (the standard PR-review entry point) or a `file-path` (single-file review). The skill produces a single JSON document conforming to the DO output contract, extended with `sub-results` and — when applicable — `skipped-sub-skills`.
 
@@ -60,6 +60,8 @@ The worklist is the list of sub-skills judged relevant by the previous step. Eve
 
 ## Action
 
+### Roll up sub-skill findings
+
 For each sub-skill in the worklist:
 
 1. Invoke the sub-skill with the orchestrator's inputs, passing only the subset each sub-skill declares in its `inputs`.
@@ -67,7 +69,28 @@ For each sub-skill in the worklist:
 3. If the sub-skill's `outcome` is `failed`, stop here for this sub-skill: its findings are not reliable per the DO contract and MUST NOT be copied into the super-skill's top-level `findings[]` or counted in `summary.counts`.
 4. Otherwise, append each entry from the sub-skill's `findings[]` to the super-skill's top-level `findings[]`, setting `from-sub-skill` to the sub-skill's `skill.id`. For non-citation findings (those whose `id` is a skill-defined slug rather than a reference path), prefix `id` with `<from-sub-skill>:` to prevent collisions across sub-skills. Other finding fields are preserved.
 
-Aggregate `summary.counts` and `summary.coverage` as the sums across invoked sub-skills whose `outcome` is not `failed`.
+### Agent self-review pass
+
+After the sub-skill rollup, perform a self-review pass against the same task input using the agent's built-in BC and AL knowledge. BCQuality is an **additive** knowledge layer: it augments the agent's review judgement, it does not replace it. The goal of this pass is to surface defects the agent recognises on its own — bugs, anti-patterns, error-handling gaps, AL idioms — that the leaf sub-skills did not catch because no BCQuality knowledge file covers them yet.
+
+For every candidate the agent identifies in this pass:
+
+1. **Validate against BCQuality knowledge.** Check the candidate against the knowledge files the sub-skills have already loaded for this task (visible via their `references` and `suppressed` lists in `sub-results`).
+   - If a BCQuality knowledge file matches the candidate, upgrade it to a knowledge-backed finding: cite the file in `references`, set `id` to the file's path, set `from-sub-skill` to the sub-skill that owns that knowledge domain, and merge with or deduplicate against any sub-skill finding that already covers the same concern at the same location.
+   - If a BCQuality knowledge file **explicitly contradicts** the candidate (its `## Best Practice` or `## Anti Pattern` says the opposite of what the agent flagged), suppress the candidate and do not surface it.
+   - Otherwise the candidate has no BCQuality coverage; emit it as an agent finding.
+2. **Emit agent finding.** Per DO's *Agent findings* rules:
+   - `from-sub-skill: "agent"`
+   - `references: []`
+   - `id` is a skill-defined slug prefixed with `agent:` (for example, `agent:missing-error-handling-on-http-call`).
+   - `confidence` capped at `medium`.
+   - `message` is non-empty and self-contained, describing both the issue and a concrete recommendation. A consumer rendering the finding has no knowledge-file footer to fall back on.
+
+Leaf sub-skills MUST NOT emit agent findings: their scope is bounded by the knowledge subset they evaluate. The self-review pass is a super-skill responsibility.
+
+### Summary and rollup
+
+Aggregate `summary.counts` and `summary.coverage` as the sums across invoked sub-skills whose `outcome` is not `failed`. Agent findings emitted by the super-skill itself contribute to `summary.counts` but not to `summary.coverage` (coverage is a sub-skill worklist metric and is undefined for self-review).
 
 `suppressed[]` at the super-skill level remains empty. Knowledge-file-level suppression is reported by each sub-skill within its own entry in `sub-results`.
 
@@ -82,7 +105,7 @@ Output conforms to the DO output contract, extended with `sub-results` and `skip
   "skill": { "id": "al-code-review", "version": 1 },
   "outcome": "completed",
   "summary": {
-    "counts": { "blocker": 1, "major": 1, "minor": 2, "info": 0 },
+    "counts": { "blocker": 1, "major": 1, "minor": 3, "info": 0 },
     "coverage": { "worklist-size": 4, "items-evaluated": 4 }
   },
   "findings": [
@@ -143,6 +166,19 @@ Output conforms to the DO output contract, extended with `sub-results` and `skip
       ],
       "confidence": "medium",
       "from-sub-skill": "al-security-review"
+    },
+    {
+      "id": "agent:missing-error-handling-on-http-client",
+      "severity": "minor",
+      "message": "HttpClient.Send is called without inspecting the response status or wrapping the call in a TryFunction. Network or remote-server failures will surface as runtime errors to the user. Recommendation: branch on the HttpResponseMessage.IsSuccessStatusCode and either retry, surface a controlled error, or fall back, depending on the integration's contract.",
+      "location": {
+        "file": "src/Integration/ApiClient.Codeunit.al",
+        "line": 60,
+        "range": { "start-line": 60, "end-line": 64 }
+      },
+      "references": [],
+      "confidence": "medium",
+      "from-sub-skill": "agent"
     }
   ],
   "suppressed": [],

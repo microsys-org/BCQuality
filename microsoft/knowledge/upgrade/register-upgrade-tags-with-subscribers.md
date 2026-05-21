@@ -1,26 +1,28 @@
 ---
 bc-version: [all]
 domain: upgrade
-keywords: [upgrade-tag, ongetpercompanyupgradetags, ongetperdatabaseupgradetags, registration]
+keywords: [upgrade-tag, event-subscriber, on-get-per-company-upgrade-tags, on-get-per-database-upgrade-tags, registration]
 technologies: [al]
 countries: [w1]
 application-area: [all]
 ---
 
-# Register every upgrade tag with the matching PerCompany or PerDatabase subscriber
+# Register every upgrade tag with the platform via an event subscriber
 
 ## Description
 
-An upgrade tag set via `UpgradeTag.SetUpgradeTag` only participates in the platform's upgrade-tag machinery when it is also registered through `OnGetPerCompanyUpgradeTags` or `OnGetPerDatabaseUpgradeTags` event subscribers on `Codeunit "Upgrade Tag"`. Without registration, the platform cannot enumerate the tag for diagnostic reporting, skipped-step detection, or cross-app coordination. The step still runs and sets the tag, but the tag is effectively invisible to the rest of the upgrade infrastructure.
+The `Upgrade Tag` codeunit only recognizes a tag if the tag was published to the platform through one of two events on that codeunit: `OnGetPerCompanyUpgradeTags` for tags set inside `OnUpgradePerCompany`, and `OnGetPerDatabaseUpgradeTags` for tags set inside `OnUpgradePerDatabase`. A tag that is `Set` and `Has`-checked in code but never added to one of these lists is unknown to the platform — its semantics around skip-on-reinstall, telemetry, and operator queries do not apply.
+
+The registration scope must match where the tag is set: a tag used from `OnUpgradePerCompany` registers in `OnGetPerCompanyUpgradeTags`; a tag used from `OnUpgradePerDatabase` registers in `OnGetPerDatabaseUpgradeTags`. Crossing the scopes silently breaks the tag.
 
 ## Best Practice
 
-For every upgrade-tag constant referenced in `HasUpgradeTag`/`SetUpgradeTag`, register it in the subscriber that matches its trigger scope: tags used from `OnUpgradePerCompany` go in `OnGetPerCompanyUpgradeTags`; tags used from `OnUpgradePerDatabase` go in `OnGetPerDatabaseUpgradeTags`. Treat this mapping as a review point, not just a naming convention. Keep the tag string in a single source (Label or function) and reference it at the guard, the setter, and the registration.
+For every new upgrade tag, add one line to the matching subscriber: `PerCompanyUpgradeTags.Add(MyUpgradeTag());` or `PerDatabaseUpgradeTags.Add(MyUpgradeTag());`. Place the subscribers in the same codeunit (or a dedicated "Upgrade Tag Definitions" codeunit) so the tag string and its registration stay together.
 
 See sample: `register-upgrade-tags-with-subscribers.good.al`.
 
 ## Anti Pattern
 
-Adding a new `UpgradeTag.SetUpgradeTag(MyTag())` without the matching `PerCompanyUpgradeTags.Add(MyTag())` in the registration subscriber, or registering a tag used from `OnUpgradePerCompany` in `OnGetPerDatabaseUpgradeTags`. The code compiles and the step completes, but the tag is invisible or registered at the wrong scope.
+Calling `UpgradeTag.SetUpgradeTag(MyUpgradeTag())` without ever adding `MyUpgradeTag()` to the corresponding `OnGetPerCompany...` / `OnGetPerDatabase...` subscriber.
 
 See sample: `register-upgrade-tags-with-subscribers.bad.al`.

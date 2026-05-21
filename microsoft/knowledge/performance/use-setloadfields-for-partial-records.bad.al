@@ -1,14 +1,14 @@
-codeunit 50111 "Perf Sample SetLoadFields Bad"
+codeunit 50219 "Perf Sample LoadFields Bad"
 {
-    procedure ExportItemNumbers(var Item: Record Item)
+    procedure ListUSCustomerNames()
+    var
+        Customer: Record Customer;
     begin
-        if Item.FindSet() then
+        // Loads every Customer column on every row, when only Name is read.
+        Customer.SetRange("Country/Region Code", 'US');
+        if Customer.FindSet() then
             repeat
-                Export(Item."No.", Item.Description);
-            until Item.Next() = 0;
-    end;
-
-    local procedure Export(ItemNo: Code[20]; Description: Text[100])
-    begin
+                Message(Customer.Name);
+            until Customer.Next() = 0;
     end;
 }

@@ -1,4 +1,4 @@
-codeunit 50803 "Upgrade Sample TagGuard Bad"
+codeunit 50209 "Upgrade Tag Driven"
 {
     Subtype = Upgrade;
 
@@ -8,20 +8,18 @@ codeunit 50803 "Upgrade Sample TagGuard Bad"
     begin
         NavApp.GetCurrentModuleInfo(AppInfo);
 
-        // Version check: fragile across skipped versions, and every nested branch
-        // is another place a customer can be stuck if the matching step fails.
-        if AppInfo.DataVersion().Major < 18 then
+        // Version-coupled branching — breaks when a tenant skips a version.
+        if AppInfo.DataVersion().Major > 14 then
+            exit;
+
+        if AppInfo.DataVersion().Major < 14 then
             UpgradeFeatureA()
+        else if AppInfo.DataVersion().Major < 17 then
+            UpgradeFeatureB()
         else
-            if AppInfo.DataVersion().Major < 21 then
-                UpgradeFeatureB();
+            exit;
     end;
 
-    local procedure UpgradeFeatureA()
-    begin
-    end;
-
-    local procedure UpgradeFeatureB()
-    begin
-    end;
+    local procedure UpgradeFeatureA() begin end;
+    local procedure UpgradeFeatureB() begin end;
 }

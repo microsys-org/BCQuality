@@ -66,6 +66,17 @@ The orchestrator parses this **without skill-specific logic**. This is the point
 ### 7. Orchestrator integrates
 The orchestrator turns findings into PR comments, build gates, or IDE diagnostics, and links the references back to the knowledge files so the PR author — human or agent — can read the guidance.
 
+## Knowledge-backed and agent findings
+
+BCQuality is an **additive** knowledge layer. The agent surfaces two kinds of findings, both shaped to the same DO output contract:
+
+- **Knowledge-backed findings** carry one or more entries in `references[]` pointing at BCQuality knowledge files. Their `id` is the primary file's repo-relative path. These are produced by leaf sub-skills and rolled up by super-skills.
+- **Agent findings** are surfaced by a super-skill from its own self-review pass when no BCQuality knowledge file backs the concern. They are tagged with `from-sub-skill: "agent"`, carry an empty `references: []`, use a slug `id` prefixed `agent:`, and have `confidence` capped at `medium`. Their `message` is self-contained because there is no knowledge-file footer to fall back on.
+
+Before a super-skill emits an agent finding, it validates the candidate against the BCQuality knowledge already loaded for the task: a matching file upgrades the candidate to a knowledge-backed finding (and merges or deduplicates against the relevant sub-skill output); a contradicting file suppresses the candidate. Only candidates with no BCQuality coverage become agent findings.
+
+Orchestrators MAY render the two kinds differently — for example, by labelling agent findings or routing them to a separate review domain — and MAY apply independent severity floors. The `from-sub-skill: "agent"` marker is the contract.
+
 ## Why this architecture
 
 - **Entry is the only hardcoded thing.** Orchestrators ship with one convention — *"invoke `/skills/entry.md` first"* — and nothing else. New action skills and new knowledge files are picked up automatically because Entry discovers them at dispatch time.

@@ -1,22 +1,22 @@
 ---
 bc-version: [all]
 domain: privacy
-keywords: [tobeclassified, dataclassification, release, gdpr, placeholder]
+keywords: [tobeclassified, data-classification, release, appsource, development]
 technologies: [al]
 countries: [w1]
 application-area: [all]
 ---
 
-# Resolve ToBeClassified before release
+# Resolve every `ToBeClassified` before release
 
 ## Description
 
-`DataClassification = ToBeClassified` is a development marker, not a releasable privacy state. It tells reviewers and tooling that the field still needs classification work. Shipping it prevents data-subject, retention, and telemetry tooling from making a correct decision about the field.
+`DataClassification = ToBeClassified` is the sentinel value the AL compiler accepts while a developer has not yet decided what a new field actually stores. It exists for the development phase only and must be resolved to a real classification (`CustomerContent`, `EndUserIdentifiableInformation`, `EndUserPseudonymousIdentifiers`, `AccountData`, `OrganizationIdentifiableInformation` or `SystemMetadata`) before the code ships. A released field left at `ToBeClassified` tells the platform "we have not classified this data" — which means GDPR data-subject requests, telemetry and audit reports cannot reason about it.
 
 ## Best Practice
 
-Replace every `ToBeClassified` value with the narrowest accurate classification before the PR ships to customers. If the field inherits a correct table-level DataClassification, remove the placeholder rather than leaving a field-level `ToBeClassified` override.
+Treat `ToBeClassified` as a TODO marker that fails release readiness. Sweep new table objects and table extensions for it before submitting a build for publication. If the right classification is genuinely unclear, decide between `CustomerContent` and `EndUserIdentifiableInformation` from the data's content, not from convenience.
 
 ## Anti Pattern
 
-Treating ToBeClassified as a safe default because the field is new or because the final classification is uncertain. Uncertainty should bias toward a stronger classification, not toward an unresolved placeholder.
+Leaving `ToBeClassified` in a shipped extension. Reviewers who treat the value as "I'll figure it out later" ship a field whose privacy posture is undefined for every customer that installs the app.
