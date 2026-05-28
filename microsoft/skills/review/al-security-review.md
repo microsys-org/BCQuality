@@ -61,6 +61,8 @@ Set `confidence` to:
 - `medium` when detection relies on heuristics or when any frontmatter dimension was `unknown`.
 - `low` when the finding is an advisory derived only from applicability.
 
+When the knowledge file ships an unambiguous `.good.al` companion that names exactly the correction the finding requires (and the diff context makes the substitution mechanical), set `findings[].suggested-code` to the literal replacement for the source lines indicated by `location`. The payload must be a verbatim replacement — no diff markers, no fences, no commentary — that the consumer can render as a one-click suggestion. Skip the field when the appropriate fix depends on context the skill cannot determine, or when more than one defensible replacement exists. See `skills/do.md` for the full contract.
+
 Outcome selection:
 
 - `completed` — the skill evaluated every worklist item; default when the skill finishes normally, including when the resulting `findings` array is empty.
