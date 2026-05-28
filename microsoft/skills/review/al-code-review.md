@@ -60,9 +60,18 @@ The worklist is the list of sub-skills judged relevant by the previous step. Eve
 
 ## Action
 
+### Execution discipline (mandatory)
+
+The Action step is a sequence of **discrete iterations**, not one combined generation. The contract requires the super-skill to invoke each sub-skill in turn and then perform a self-review pass. Concretely this means:
+
+- Treat each sub-skill in the worklist as its own pass: read the sub-skill's instructions, apply its Source → Relevance → Worklist → Action steps to the orchestrator-supplied inputs, and produce that sub-skill's complete findings-report before moving on.
+- Do not collapse multiple sub-skills into one shared reasoning step. Each sub-skill has a distinct knowledge subset and a distinct evaluation procedure; sharing one rolled-up scan dilutes per-skill attention and causes leaves to silently underreport (this has been observed in production: leaf skills returned empty `findings[]` while their standalone runs against the same diff produced multiple matches).
+- The agent self-review pass is its own final iteration. Begin it only after every sub-skill in the worklist has completed and its sub-result is recorded.
+- Sub-skills are independent: re-walking the diff once per sub-skill is correct and expected. The output schema accommodates this — `sub-results` carries one entry per sub-skill, each a complete findings-report.
+
 ### Roll up sub-skill findings
 
-For each sub-skill in the worklist:
+For each sub-skill in the worklist, executed one at a time per the discipline above:
 
 1. Invoke the sub-skill with the orchestrator's inputs, passing only the subset each sub-skill declares in its `inputs`.
 2. Capture the sub-skill's complete findings-report verbatim and append it to `sub-results`.
@@ -71,7 +80,17 @@ For each sub-skill in the worklist:
 
 ### Agent self-review pass
 
-After the sub-skill rollup, perform a self-review pass against the same task input using the agent's built-in BC and AL knowledge. BCQuality is an **additive** knowledge layer: it augments the agent's review judgement, it does not replace it. The goal of this pass is to surface defects the agent recognises on its own — bugs, anti-patterns, error-handling gaps, AL idioms — that the leaf sub-skills did not catch because no BCQuality knowledge file covers them yet.
+After every sub-skill has produced its sub-result, perform a self-review pass against the same task input using the agent's built-in BC and AL knowledge. BCQuality is an **additive** knowledge layer: it augments the agent's review judgement, it does not replace it. The goal of this pass is to surface defects the agent recognises on its own — bugs, anti-patterns, error-handling gaps, AL idioms — that the leaf sub-skills did not catch because no BCQuality knowledge file covers them yet.
+
+This pass is mandatory. An empty agent-findings list is acceptable only when the diff is small enough that the leaves have provably exhausted the surface (in practice: PRs of ≤2 files with ≤30 changed lines and at least one sub-skill emitting findings). For larger diffs, returning an empty agent-findings list is a defect — the agent has built-in BC/AL knowledge that the leaves cannot supply, and refusing to apply it is the most common cause of parity loss against agents that do not have a BCQuality layer at all.
+
+Before emitting the final report, walk these candidate categories explicitly against the diff and decide for each whether to emit a finding. This is a checklist, not an exhaustive list — it names patterns where the agent's general AL knowledge consistently outruns BCQuality coverage:
+
+- **Architecture-level smells**: repeated `Record.Get` of the same key inside one call chain; large payloads streamed through memory when a streaming primitive exists; widely-scoped `Permissions = … = rimd` on codeunits that only read; `case` over an enum without an `else` branch (silent fall-through on unknown values); HTTP calls without `IsSuccessStatusCode` inspection; `tryFunction`-shaped procedures that swallow errors without surfacing them to telemetry.
+- **Error-handling gaps**: `Error()` built by `+` string concatenation; `if not Customer.Get(...) then Error(... + CustomerNo)`; failure paths that emit no telemetry; upgrade procedures that do not register `OnGetPerCompanyUpgradeTags` / `OnGetPerDatabaseUpgradeTags` event subscribers when they call `Set/HasUpgradeTag`.
+- **Magic constants** that encode a protocol or platform threshold (Graph 4 MB simple-upload cutoff, file-size limits, retry counts) without naming them through a `const`-suffixed Label.
+- **Privacy/telemetry surface**: PII bound into `Session.LogMessage` message text; placeholder telemetry event IDs (`'0000'`, `'TODO'`); `Locked = true` missing on Labels that carry URLs, JSON, or wire tokens.
+- **Resource lifecycle**: temporary records or HTTP message objects re-used across iterations without `Reset`/clearing; `Commit` inside a loop body.
 
 For every candidate the agent identifies in this pass:
 
@@ -85,7 +104,7 @@ For every candidate the agent identifies in this pass:
    - `id` is a skill-defined slug prefixed with `agent:` (for example, `agent:missing-error-handling-on-http-call`).
    - `confidence` capped at `medium`.
    - `message` is non-empty and self-contained, describing both the issue and a concrete recommendation. A consumer rendering the finding has no knowledge-file footer to fall back on.
-   - `suggested-code` SHOULD be set when the fix is small and mechanical (e.g. removing a few unreachable lines, replacing a `Count() > 0` test with `not IsEmpty()`, declaring a missing `Label`). Omit it when the appropriate fix depends on context the agent cannot determine.
+   - `suggested-code` SHOULD be set when the fix is small and mechanical (e.g. removing a few unreachable lines, replacing a `Count() > 0` test with `not IsEmpty()`, declaring a missing `Label`, adding an `else` branch to a `case` over an enum). Omit it when the appropriate fix depends on context the agent cannot determine.
 
 Leaf sub-skills MUST NOT emit agent findings: their scope is bounded by the knowledge subset they evaluate. The self-review pass is a super-skill responsibility.
 
