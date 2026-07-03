@@ -94,7 +94,9 @@ Every action skill emits a single JSON document that conforms to this schema:
         { "path": "string", "sha": "string" }
       ],
       "confidence": "high | medium | low",
-      "from-sub-skill": "string"
+      "from-sub-skill": "string",
+      "suggested-code": "string",
+      "suggested-code-omission-reason": "string"
     }
   ],
   "suppressed": [
@@ -115,6 +117,12 @@ Every action skill emits a single JSON document that conforms to this schema:
 }
 ```
 
+### JSON validity
+
+The emitted document MUST be strict, valid JSON per [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259). Inside every string value, all double quotes MUST be escaped as `\"` and all line breaks as `\n`; other control characters MUST use their JSON escapes. This is not optional polish — it is the difference between a parseable report and one a consumer silently drops.
+
+AL source is the common failure case. Quoted identifiers (for example `Rec."No."`) and multi-line snippets routinely appear in `message`, `suggested-code`, and `suggested-code-omission-reason`, and each embedded quote or newline MUST be escaped when placed in a string value. A `suggested-code` payload that spans several lines is a single JSON string with `\n` separators, not a literal multi-line block. Emit the document as one JSON value with no trailing commentary, and do not rely on the consumer to repair unescaped output.
+
 ### Field semantics
 
 **`outcome`** (required) —
@@ -133,17 +141,30 @@ An empty `findings` array with `outcome: completed` means the skill ran and foun
 
 When a super-skill rolls up a non-citation finding from a sub-skill (an `id` that is a slug, not a path), the super-skill MUST prefix the `id` with `<from-sub-skill>:` to avoid collisions across sub-skills (for example, a slug `missing-test` from `al-security-review` becomes `al-security-review:missing-test`). Citation-based findings are already globally unique through their repo-relative path and MUST NOT be rewritten.
 
-**Agent findings.** A super-skill MAY emit findings that the agent identified through its own reasoning rather than from a BCQuality knowledge file. BCQuality is an **additive** knowledge layer: it augments the agent's pre-existing review judgement, it does not replace it. An agent finding is encoded by:
+**Agent findings.** A skill MAY emit findings that the agent identified through its own reasoning rather than from a BCQuality knowledge file. BCQuality is an **additive** knowledge layer: it augments the agent's pre-existing review judgement, it does not replace it. An agent finding is encoded by:
 
-- `from-sub-skill: "agent"` — the canonical marker. Use this exact value; do not invent equivalents.
 - `references: []` — required. An agent finding has no knowledge-file citation by definition; if a citation existed, the finding would be a knowledge-backed finding instead.
 - `id` — a skill-defined slug, prefixed with `agent:` (mirroring the `<from-sub-skill>:` rule). For example, `agent:obsolete-find-signature`.
 - `confidence` — capped at `medium`. Without a knowledge-file citation there is no authoritative basis for `high` confidence.
+- `severity` — capped at `minor`. Agent findings are advisory and non-gating: without a curated rule behind them they MUST NOT carry `major` or `blocker` weight, which the severity taxonomy reserves for gating defects. A genuinely severe issue the agent is confident about almost always matches an existing knowledge file (upgrading it to a knowledge-backed finding) or warrants authoring a new one — not a high-severity agent finding. When the underlying impact would otherwise be `major` or `blocker`, keep the emitted `severity` at `minor` but say so plainly in the `message`, and flag that the concern should be promoted to a knowledge-backed rule before it can gate.
 - `message` — non-empty and self-contained. It MUST describe the issue and a concrete recommendation, since a consumer rendering the finding has no knowledge-file footer to fall back on.
+- `from-sub-skill` — set by super-skills only. The literal string `"agent"` when the super-skill itself produced the finding from its own cross-cutting reasoning; or the producing leaf's `skill.id` when the super-skill is rolling up a leaf's agent finding. Absent on findings emitted directly by a leaf (the leaf's own report carries the finding under its `skill.id` already).
 
-Agent findings are emitted **only by super-skills** (the `al-code-review` super-skill is the canonical example). Leaf sub-skills MUST NOT emit agent findings: a leaf's job is to evaluate one knowledge subset, and a finding it cannot cite from that subset is out of scope for it. Before emitting an agent finding, a super-skill MUST validate the candidate against the BCQuality knowledge it has already loaded for the task — if a knowledge file matches, the candidate is upgraded to a knowledge-backed finding (and merged or deduplicated against any sub-skill output that already covers the same concern); if a knowledge file explicitly contradicts the candidate, it is suppressed.
+**Precision bar — emit agent findings conservatively.** Agent findings are the lowest-precision output BCQuality produces: there is no curated rule behind them, so a false positive costs reviewer trust with nothing to point back to. Hold them to a deliberately high bar:
 
-Consumers that render output MAY treat agent findings differently from knowledge-backed findings (for example, by labelling them and routing them to a separate review domain). The `from-sub-skill: "agent"` marker is the contract they rely on.
+- Emit only a **concrete, demonstrable defect with material impact** that a knowledgeable BC reviewer would agree is wrong — not merely different, suboptimal in theory, or not-how-I-would-write-it.
+- **Steelman before emitting.** State the strongest case that the code is correct as written: a deliberate choice, a valid alternative, or behaviour that depends on code outside the diff. If that case is plausible, do not emit.
+- **Never emit** as agent findings: stylistic or formatting preferences (outside a dedicated style skill's own domain); speculative or hypothetical concerns — anything you would phrase with "could", "might", or "consider"; issues that depend on code not visible in the diff; valid alternative approaches; or generic software-engineering advice a competent model already applies without prompting (the same exclusion the knowledge-file admission test enforces).
+- **When in doubt, omit.** Recall is the knowledge files' responsibility; the agent channel exists only for the high-confidence, concrete defect the corpus has not captured yet. A missed low-severity observation is cheaper than a false positive.
+
+Agent findings may be emitted by both leaf sub-skills and super-skills, with different scope boundaries:
+
+- A **leaf sub-skill** MAY emit agent findings strictly within its declared `domain`. al-security-review MAY surface an agent security finding that no knowledge file covers (for example, a `case` over a security-relevant enum with no `else` arm), but MUST NOT emit a style or performance agent finding — those are out of scope for the leaf and belong to other leaves or to the super-skill. The leaf's domain is the bounding box.
+- A **super-skill** MAY emit agent findings of any kind, but its self-review pass is most useful for **cross-cutting** concerns that span multiple leaf domains (architecture-level smells, error-handling gaps that touch security and reliability, resource lifecycle issues). Domain-specific agent reasoning is the leaves' job; the super-skill should not duplicate it.
+
+Before emitting an agent finding, a skill MUST validate the candidate against the BCQuality knowledge it has already loaded for the task — if a knowledge file matches, the candidate is upgraded to a knowledge-backed finding (and merged or deduplicated against any existing finding that already covers the same concern); if a knowledge file explicitly contradicts the candidate, it is suppressed. For a super-skill rolling up leaf reports, this validation is done against the union of knowledge files all leaves loaded, not just one leaf's set.
+
+Consumers that render output MAY treat agent findings differently from knowledge-backed findings (for example, by labelling them and routing them to a separate review domain). The `references: []` marker, together with the `agent:` `id` prefix, is the contract they rely on; `from-sub-skill: "agent"` is the additional marker for super-skill-emitted agent findings.
 
 **`findings[].severity`** — see the taxonomy below.
 
@@ -166,7 +187,15 @@ The first reference is the **primary** reference: the knowledge file the finding
 
 **`findings[].confidence`** — the skill's confidence that the finding is a true positive, given the evidence it evaluated. Not applicability confidence, not severity confidence. Values: `high`, `medium`, `low`.
 
-**`findings[].from-sub-skill`** — optional. Set only by super-skills. The `skill.id` of the sub-skill that produced the finding, or the literal string `"agent"` for an agent finding the super-skill produced from its own reasoning. Absent on findings produced directly by a leaf skill.
+**`findings[].from-sub-skill`** — optional. Set only by super-skills. The `skill.id` of the sub-skill that produced the finding, or the literal string `"agent"` for an agent finding the super-skill produced from its own cross-cutting reasoning. Absent on findings emitted directly by a leaf skill — including agent findings the leaf emits within its own domain, which appear in the leaf's own report without this field.
+
+**`findings[].suggested-code`** — optional in the schema but **expected for mechanical findings**. It is a concrete code-replacement payload for the lines indicated by `location`. When present, the string MUST be a literal replacement for the source lines covered by `location.line` (or `location.range` if set) — i.e., what the file would contain after the fix, with no surrounding diff markers, fences, or commentary. Consumers MAY render it as a one-click suggestion in the delivery surface (for example, a GitHub ```` ```suggestion ```` block).
+
+Emit `suggested-code` whenever the fix is small, local, and mechanical: deleting unreachable code; replacing one expression (`Count() > 0` → `not IsEmpty()`); moving a local `Label` to object scope; adding a missing property such as `ToolTip`, `OptionCaption`, or `DataClassification`; replacing a string-concatenated `Error` with a Label-backed call; changing a permission token; or adding a missing `else`/guard branch whose replacement is unambiguous from the surrounding diff. When a `.good.al` companion exists and the diff context matches the `.bad.al` shape, prefer adapting the `.good.al` replacement into `suggested-code`.
+
+Omit `suggested-code` only when the appropriate fix depends on context the skill cannot determine, when multiple defensible replacements exist, or when the fix spans non-contiguous code. If a finding is mechanical-looking but `suggested-code` is omitted, set `findings[].suggested-code-omission-reason` to a short explanation (for example, `requires choosing a real event id` or `fix spans multiple non-contiguous locations`). The `suggested-code` payload supplements `message`; it does not replace the explanation in `message`.
+
+**`findings[].suggested-code-omission-reason`** — optional. Required when a finding is mechanical-looking but `suggested-code` is omitted. Short, human-readable reason explaining why no safe one-click replacement was emitted. Consumers MAY use this for telemetry or diagnostics; they do not have to render it in review comments.
 
 **`suppressed`** — MUST list every knowledge file that was discarded due to layer precedence or consumer configuration, whenever that file would otherwise have contributed to the worklist. Each entry contains:
 
@@ -259,3 +288,5 @@ Conforms to the DO output contract.
 ## How orchestrators consume output
 
 An orchestrator invokes an action skill with an input appropriate to the skill's declared `inputs`, receives the JSON output, and maps findings to its delivery surface (PR comments, build gates, IDE diagnostics). The orchestrator MUST NOT interpret skill-specific fields beyond the schema above. Skills that need richer semantics MUST encode them within the schema (for example, by adding structured `message` text) rather than extending the output shape.
+
+

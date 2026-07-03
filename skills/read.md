@@ -26,7 +26,7 @@ A file that violates any of these rules is invalid and MUST be skipped by consum
 
 ```yaml
 ---
-bc-version: [all]                       # or [26, 27, 28] or the range shorthand [26..28]
+bc-version: [all]                       # or [26, 27, 28], the range [26..28], or the open-ended range [26..]
 domain: performance
 keywords: [query, filtering, partial]
 technologies: [al]
@@ -39,13 +39,14 @@ All six fields are required. Missing or empty fields invalidate the file.
 
 ### Fields
 
-**`bc-version`** — Array. The Business Central major versions this file applies to. Three forms are accepted:
+**`bc-version`** — Array. The Business Central major versions this file applies to. Four forms are accepted:
 
 - Universal sentinel: `[all]` means the guidance applies to every BC version and matches any target.
 - Explicit list: `[26, 27, 28]`.
-- Range shorthand: `[26..28]` means every integer from 26 through 28 inclusive.
+- Closed range shorthand: `[26..28]` means every integer from 26 through 28 inclusive.
+- Open-ended range shorthand: `[26..]` means version 26 and every later version, with no upper bound. Use it for guidance tied to a feature introduced in a specific version that is not expected to be removed.
 
-`[all]` is mutually exclusive with explicit versions; do not combine. Consumers MUST expand ranges to the full set before comparison.
+`[all]` is mutually exclusive with explicit versions; do not combine. Consumers MUST expand closed ranges to the full set before comparison; an open-ended range `[N..]` is not enumerable and instead matches any target version greater than or equal to `N`.
 
 **`domain`** — String. A single domain tag that places the file within a broader area of concern. Standard values include `performance`, `security`, `ux`, `telemetry`, `testing`, `api`, `pipelines`, `finance`, `supply-chain`, `manufacturing`, `jobs`. New domains may be introduced by contributors; no closed enumeration is enforced at the schema level. Consumers MUST treat unknown domains as valid.
 
@@ -80,8 +81,8 @@ The default consumption model is **additive**: an action skill sees files from e
 
 When two files give **directly contradictory normative guidance**, the conflict is resolved by layer precedence:
 
-1. `/custom/` wins over `/microsoft/` and `/community/`.
-2. `/microsoft/` wins over `/community/`.
+1. `/custom/` wins over `/community/` and `/microsoft/`.
+2. `/community/` wins over `/microsoft/`.
 
 A conflict exists when both of the following are true:
 
@@ -94,7 +95,7 @@ Conflict detection is the consumer's responsibility; BCQuality does not enforce 
 
 When a consumer filters or matches files against a task context, these rules apply:
 
-- **`bc-version`** — the file matches if its set is `[all]`, or if the target BC version is an element of the file's expanded `bc-version` set. Range shorthand (`[26..28]`) MUST be expanded before comparison.
+- **`bc-version`** — the file matches if its set is `[all]`, or if the target BC version is an element of the file's expanded `bc-version` set. Closed range shorthand (`[26..28]`) MUST be expanded before comparison; an open-ended range (`[26..]`) matches when the target BC version is greater than or equal to its lower bound.
 - **`technologies`** — non-empty intersection between the task's technologies and the file's technologies. There is no sentinel for this field.
 - **`countries`** — the file matches if its set contains `w1`, or if there is a non-empty intersection with the task's countries.
 - **`application-area`** — the file matches if its set contains `all`, or if there is a non-empty intersection with the task's application areas.
@@ -140,7 +141,7 @@ Consumers that surface sample code to an end user or agent SHOULD cite the sampl
 
 The standard workflow for finding applicable files:
 
-1. Collect candidates by path (typically by `domain` subfolder, across enabled layers).
+1. Collect candidates from the knowledge index (`knowledge-index.json`). BCQuality maintains it: Entry's preparation step (see [entry.md](entry.md)) regenerates it over the live, already-filtered clone, so it lists exactly the articles that survived the consumer's layer/allow-deny pruning, each with the frontmatter, `keywords`, `title`, and one-line `description` that steps 2-3 need — candidates are enumerated without opening each file. The index is **discovery metadata only**: it tells you *which* files to open, it does not substitute for them. A finding MUST cite only an article that was opened and read in full; an index row whose file is absent from the clone MUST be discarded *before* ranking or worklisting, and its metadata MUST NOT seed a finding. Absent an index, collect candidates by path (typically by `domain` subfolder, across enabled layers).
 2. Filter by frontmatter using the matching rules above. Files that are not applicable are discarded.
 3. Rank or narrow by `keywords` relevance to the task.
 4. Resolve conflicts via layer precedence.

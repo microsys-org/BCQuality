@@ -20,7 +20,7 @@ An orchestrator invokes this skill with either a `pr-diff` (the standard PR-revi
 
 ## Source
 
-Collect all knowledge files under `*/knowledge/upgrade/**/*.md`, across every enabled layer (`/microsoft/`, `/community/`, `/custom/`). Relevance trims the result to the subset that applies.
+Read the BCQuality knowledge index once — the `knowledge-index.json` BCQuality builds at the root of the knowledge checkout (Entry's preparation step regenerates it over the live, already-filtered clone — see `skills/entry.md`). It lists every article that survived layer and allow/deny filtering and carries, per article, its `path`, `layer`, `domain`, frontmatter dimensions, `keywords`, `title`, and a one-line `description` hint — exactly the fields Relevance and Worklist consume. Take the index entries whose `domain` is `upgrade` as this skill's candidate set across every enabled layer; do not open the individual article files at this step. Open an article's full body only once it enters the Worklist below, so a review reads the index plus the handful of worklisted articles instead of every file under `*/knowledge/upgrade/**`.
 
 ## Relevance
 
@@ -41,7 +41,7 @@ Narrow the relevant files to the subset that applies to the changes under review
 - The changed triggers and procedures, weighted toward `OnUpgradePerCompany`, `OnUpgradePerDatabase`, `OnValidateUpgradePerCompany`, `OnValidateUpgradePerDatabase`, `OnInstallAppPerCompany`, and the `OnGetPerCompanyUpgradeTags`/`OnGetPerDatabaseUpgradeTags` subscribers.
 - Tokens extracted from the diff that relate to upgrade concerns (`Subtype = Upgrade`, `Upgrade Tag`, `HasUpgradeTag`, `SetUpgradeTag`, `OnValidateUpgrade`, `DataTransfer`, `CopyFields`, `InitValue`, `ObsoleteState`, `ObsoleteReason`, `ObsoleteTag`, `DataVersion`, `ExecutionContext`, `PrimaryKey`, `key(`, `field(`, `value(`, `enum`, `enumextension`, `HybridSL`, `HybridGP`, `HybridBC`, `HybridBaseDeployment`).
 
-A file enters the candidate worklist when its `keywords` intersect the extracted tokens or its topic matches a changed object type. When the diff contains no upgrade-related changes by any of the above signals, return `outcome: "not-applicable"` without evaluating files.
+A file enters the candidate worklist when its `keywords` intersect the extracted tokens or its topic (derived from the index entry's `path`, `title`, and `description`) matches a changed object type. Read an article's full file — its `## Best Practice` / `## Anti Pattern` bodies — only after it makes the worklist; candidate selection uses the index alone. When the diff contains no upgrade-related changes by any of the above signals, return `outcome: "not-applicable"` without evaluating files.
 
 Once the candidate worklist is known, resolve layer-precedence conflicts per READ. Drop lower-precedence files whose normative guidance directly contradicts a higher-precedence candidate, and record each dropped file in `suppressed` with `reason: "layer-precedence"`. Files suppressed by configuration are recorded with `reason: "configuration"`.
 
@@ -60,6 +60,12 @@ Set `confidence` to:
 - `high` when the detection is based on an unambiguous pattern match.
 - `medium` when detection relies on heuristics or when any frontmatter dimension was `unknown`.
 - `low` when the finding is an advisory derived only from applicability.
+
+After evaluating each worklist entry, also consider whether the diff exhibits a upgrade defect the agent recognises from its general AL knowledge that no knowledge file in the worklist covers. Such candidates are agent findings within this skill's domain — emit them with `references: []`, an `id` slug prefixed with `agent:`, `confidence` capped at `medium`, `severity` capped at `minor` (agent findings are advisory and non-gating), and a `message` that is self-contained (describing both the issue and a concrete recommendation, since there is no knowledge-file footer for the consumer to fall back on). Hold every candidate to the precision bar in `skills/do.md` (*Agent findings*): emit only a concrete, material upgrade or breaking-change defect a knowledgeable BC reviewer would agree is wrong — steelman it first and drop anything stylistic, speculative, dependent on code outside the diff, or merely a valid alternative; when in doubt, omit. The scope is strictly upgrade; defects outside this domain belong to other leaves and MUST NOT be emitted here. Before emitting, check the worklist for a knowledge file that matches the candidate — if one exists, upgrade the candidate to a knowledge-backed finding instead. See `skills/do.md` for the full contract.
+
+For every emitted finding, decide whether the fix is mechanical. A fix is mechanical when it is small, local, and unambiguous from the diff context (for example: delete unreachable lines; replace `Count() > 0` with `not IsEmpty()`; move a local `Label` to object scope; add a missing `ToolTip`, `OptionCaption`, or `DataClassification`; replace a string-concatenated `Error` with a Label-backed call; change an over-broad permission token; or add an obvious `else`/guard branch). For mechanical findings, emit `findings[].suggested-code` with the literal replacement for the source lines indicated by `location`. The payload must be a verbatim replacement — no diff markers, no fences, no commentary — that the consumer can render as a one-click suggestion. When a `.good.al` companion exists and the diff context matches the `.bad.al` shape, adapt the `.good.al` replacement into `suggested-code`.
+
+Omit `suggested-code` only when the appropriate fix depends on context the skill cannot determine, when multiple defensible replacements exist, or when the fix spans non-contiguous code. If a finding is mechanical-looking but you omit `suggested-code`, set `findings[].suggested-code-omission-reason` to a short explanation. See `skills/do.md` for the full contract.
 
 Outcome selection:
 
@@ -99,3 +105,4 @@ Output conforms to the DO output contract. A populated example:
   "suppressed": []
 }
 ```
+

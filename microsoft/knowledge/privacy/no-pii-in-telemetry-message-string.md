@@ -17,7 +17,14 @@ application-area: [all]
 
 Keep the telemetry message a static, non-personal string ("Customer record processed", "Error processing uploaded file"). When structured context is genuinely needed, attach it through custom dimensions, where individual values can be reviewed and classified at the dimension level rather than baked into a free-text message.
 
+If a pseudonymous identifier (record `No.`, primary key value) genuinely belongs in the diagnostic, prefer attaching it through a custom dimension and set the call's `DataClassification` to match the data actually shipped — `EndUserPseudonymousIdentifiers` for pseudonymous IDs, `CustomerContent` for content-bearing telemetry. Changing the `DataClassification` alone does **not** make embedding a customer name into the message string acceptable; the data still ships in the message, and downstream consumers still see the literal string.
+
 See sample: `no-pii-in-telemetry-message-string.good.al`.
+
+## Related
+
+- `session-logmessage-requires-dataclassification.md` — every `Session.LogMessage` call must specify `DataClassification`; choose the value to match the actual data shipped, not the value that makes the entry retained the longest.
+- `featuretelemetry-customdimensions-no-pii.md` — custom dimensions are the right surface for structured context, but they have their own PII rules.
 
 ## Anti Pattern
 
